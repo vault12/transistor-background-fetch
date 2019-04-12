@@ -3,6 +3,7 @@ package com.transistorsoft.tsbackgroundfetch;
 import android.annotation.TargetApi;
 import android.app.ActivityManager;
 import android.app.AlarmManager;
+import android.app.KeyguardManager;
 import android.app.PendingIntent;
 import android.app.job.JobInfo;
 import android.app.job.JobScheduler;
@@ -11,6 +12,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.os.Build;
+import android.os.PowerManager;
 import android.util.Log;
 
 import java.util.Calendar;
@@ -139,6 +141,36 @@ public class BackgroundFetch {
     }
 
     /**
+     * Returns true if the device is locked or screen turned off (in case password not set)
+     */
+    public boolean isDeviceLocked() {
+        Context context = mContext;
+        boolean isLocked = false;
+
+        // First we check the locked state
+        KeyguardManager keyguardManager = (KeyguardManager) context.getSystemService(Context.KEYGUARD_SERVICE);
+        boolean inKeyguardRestrictedInputMode = keyguardManager.inKeyguardRestrictedInputMode();
+
+        if (inKeyguardRestrictedInputMode) {
+            isLocked = true;
+
+        } else {
+            // If password is not set in the settings, the inKeyguardRestrictedInputMode() returns false,
+            // so we need to check if screen on for this case
+
+            PowerManager powerManager = (PowerManager)context.getSystemService(Context.POWER_SERVICE);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT_WATCH) {
+                isLocked = !powerManager.isInteractive();
+            } else {
+                //noinspection deprecation
+                isLocked = !powerManager.isScreenOn();
+            }
+        }
+
+        return isLocked;
+    }
+
+    /**
      * Used for Headless operation for registering completion-handler to execute #jobFinised on JobScheduler
      * @param completionHandler
      */
@@ -165,7 +197,13 @@ public class BackgroundFetch {
             stop();
         } else if (mConfig.getForceReload()) {
             Log.d(TAG, "- MainActivity is inactive");
-            forceMainActivityReload();
+            if (isDeviceLocked()) {
+                Log.d(TAG, "- Device is locked, launching MainActivity");
+                forceMainActivityReload();
+            } else {
+                Log.d(TAG, "- Device is unlocked, skipping MainActivity launch");
+                finish();
+            }
         } else if (mConfig.getJobService() != null) {
             finish();
             // Fire a headless background-fetch event.

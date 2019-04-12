@@ -1,6 +1,28 @@
 Transistor Background Fetch
 ===========================================================================
 
+Forked from [https://github.com/transistorsoft/transistor-background-fetch/]()
+
+Modified to force reload app only if device is locked.
+
+To build this lib and update `.aar` package bundled in `cordova-plugin-background-fetch` cordova plugin, follow the next steps:
+
+* Open `./android/tsbackgroundfetch/build.gradle` and update path to `cordova-plugin-background-fetch` working copy setting on line 80:
+
+```
+def cordovaDir = "/Users/me/vault12/cordova-plugin-background-fetch"
+```
+
+* Open `./android/tsbackgroundfetch/` folder in terminal and run:
+
+```
+./gradlew cordovaRelease
+```
+This will build fresh `.aar` package and copy it to the `cordova-cordova-plugin-background-fetch` working copy in the right place.
+
+
+---
+
 Copyright (c) 2017 Transistor Software <info@transistorsoft.com>
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
