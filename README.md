@@ -3,7 +3,7 @@ Transistor Background Fetch
 
 Forked from [https://github.com/transistorsoft/transistor-background-fetch/]()
 
-Modified to force reload app only if device is locked.
+Modified to force reload app on Android only if device is locked.
 
 To build this lib and update `.aar` package bundled in `cordova-plugin-background-fetch` cordova plugin, follow the next steps:
 
