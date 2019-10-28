@@ -13,7 +13,7 @@ To build this lib and update `.aar` package bundled in `cordova-plugin-backgroun
 def cordovaDir = "/Users/me/vault12/cordova-plugin-background-fetch"
 ```
 
-* Open `./android/tsbackgroundfetch/` folder in terminal and run:
+* Open `./android/` folder in terminal and run:
 
 ```
 ./gradlew cordovaRelease
