@@ -13,10 +13,14 @@ import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.os.Build;
 import android.os.PowerManager;
+import android.os.Handler;
+import android.os.Looper;
 import android.util.Log;
 
 import java.util.Calendar;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -40,6 +44,24 @@ public class BackgroundFetch {
     private static BackgroundFetch mInstance = null;
     private static int FETCH_JOB_ID = 999;
 
+    private static ExecutorService sThreadPool;
+
+    private static Handler uiHandler;
+
+    public static Handler getUiHandler() {
+        if (uiHandler == null) {
+            uiHandler = new Handler(Looper.getMainLooper());
+        }
+        return uiHandler;
+    }
+
+    public static ExecutorService getThreadPool() {
+        if (sThreadPool == null) {
+            sThreadPool = Executors.newCachedThreadPool();
+        }
+        return sThreadPool;
+    }
+
     public static BackgroundFetch getInstance(Context context) {
         if (mInstance == null) {
             mInstance = getInstanceSynchronized(context.getApplicationContext());
@@ -62,7 +84,7 @@ public class BackgroundFetch {
     }
 
     public void configure(BackgroundFetchConfig config, BackgroundFetch.Callback callback) {
-        Log.d(TAG, "- configure: " + config);
+        Log.d(TAG, "- " + ACTION_CONFIGURE + ": " + config);
         mCallback = callback;
         config.save(mContext);
         mConfig = config;
@@ -78,20 +100,25 @@ public class BackgroundFetch {
 
     @TargetApi(21)
     public void start() {
-        Log.d(TAG, "- start");
-        if (android.os.Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
+        Log.d(TAG, "- " + ACTION_START);
+
+        if (android.os.Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             // API 21+ uses new JobScheduler API
             long fetchInterval = mConfig.getMinimumFetchInterval() * 60L * 1000L;
             JobScheduler jobScheduler = (JobScheduler) mContext.getSystemService(Context.JOB_SCHEDULER_SERVICE);
             JobInfo.Builder builder = new JobInfo.Builder(FETCH_JOB_ID, new ComponentName(mContext, FetchJobService.class))
-                    .setRequiredNetworkType(JobInfo.NETWORK_TYPE_NONE)
-                    .setRequiresDeviceIdle(false)
-                    .setRequiresCharging(false)
+                    .setRequiredNetworkType(mConfig.getRequiredNetworkType())
+                    .setRequiresDeviceIdle(mConfig.getRequiresDeviceIdle())
+                    .setRequiresCharging(mConfig.getRequiresCharging())
                     .setPersisted(mConfig.getStartOnBoot() && !mConfig.getStopOnTerminate());
             if (android.os.Build.VERSION.SDK_INT >= 24) {
                 builder.setPeriodic(fetchInterval, TimeUnit.MINUTES.toMillis(5));
             } else {
                 builder.setPeriodic(fetchInterval);
+            }
+            if (android.os.Build.VERSION.SDK_INT >= 26) {
+                builder.setRequiresStorageNotLow(mConfig.getRequiresStorageNotLow());
+                builder.setRequiresBatteryNotLow(mConfig.getRequiresBatteryNotLow());
             }
             if (jobScheduler != null) {
                 jobScheduler.schedule(builder.build());
@@ -110,12 +137,12 @@ public class BackgroundFetch {
     }
 
     public void stop() {
-        Log.d(TAG,"- stop");
+        Log.d(TAG,"- " + ACTION_STOP);
 
         if (mCompletionHandler != null) {
             mCompletionHandler.finish();
         }
-        if (android.os.Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
+        if (android.os.Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             JobScheduler jobScheduler = (JobScheduler) mContext.getSystemService(Context.JOB_SCHEDULER_SERVICE);
             if (jobScheduler != null) {
                 jobScheduler.cancel(FETCH_JOB_ID);
@@ -129,7 +156,7 @@ public class BackgroundFetch {
     }
 
     public void finish() {
-        Log.d(TAG, "- finish");
+        Log.d(TAG, "- " + ACTION_FINISH);
         if (mCompletionHandler != null) {
             mCompletionHandler.finish();
             mCompletionHandler = null;
@@ -186,8 +213,20 @@ public class BackgroundFetch {
     public void onFetch() {
         Log.d(TAG, "- Background Fetch event received");
         if (mConfig == null) {
-            mConfig = new BackgroundFetchConfig.Builder().load(mContext);
+            getThreadPool().execute(new Runnable() {
+                @Override public void run() {
+                    mConfig = new BackgroundFetchConfig.Builder().load(mContext);
+                    getUiHandler().post(new Runnable() {
+                        @Override public void run() { doFetch(); }
+                    });
+                }
+            });
+        } else {
+            doFetch();
         }
+    }
+
+    private void doFetch() {
         if (isMainActivityActive()) {
             if (mCallback != null) {
                 mCallback.onFetch();
@@ -207,7 +246,7 @@ public class BackgroundFetch {
         } else if (mConfig.getJobService() != null) {
             finish();
             // Fire a headless background-fetch event.
-            if (android.os.Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
+            if (android.os.Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
                 // API 21+ uses JobScheduler API to fire a Job to application's configured jobService class.
                 JobScheduler jobScheduler = (JobScheduler) mContext.getSystemService(Context.JOB_SCHEDULER_SERVICE);
                 try {
@@ -242,7 +281,6 @@ public class BackgroundFetch {
             stop();
         }
     }
-
     public void forceMainActivityReload() {
         Log.i(TAG,"- Forcing MainActivity reload");
         PackageManager pm = mContext.getPackageManager();
@@ -262,7 +300,7 @@ public class BackgroundFetch {
     public Boolean isMainActivityActive() {
         Boolean isActive = false;
 
-        if (mContext == null) {
+        if (mContext == null || mCallback == null) {
             return false;
         }
         ActivityManager activityManager = (ActivityManager) mContext.getSystemService(Context.ACTIVITY_SERVICE);
